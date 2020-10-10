@@ -52,7 +52,7 @@ JPhiPerm = PermuteSystems(JPhi,[3,2,1,4],[d,d,2,2]);
 
 cvx_begin sdp
 
- cvx_precision best
+ %cvx_precision best
 
  %the variable we are optimizing over
  variable rho2(2*d*d^2*2^2,2*d*d^2*2^2)
