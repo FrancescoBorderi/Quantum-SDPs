@@ -1,0 +1,141 @@
+cvx_solver sedumi
+
+%dimension of the input/output of the channel
+d = 2;
+
+id = eye(d);
+idnorm = 1/d * id;
+
+%JNnorm indicates the normalized Choi state of the channel
+JNnorm = zeros(d^2);
+
+for i=1 : d
+ for j=1 : d
+
+  ij = zeros(d);
+  ij(i,j) = 1;
+
+  JNnorm = JNnorm + kron(1/(d-1) * (trace(ij) * id - ij'),ij);
+
+ end
+end
+
+%normalization
+JNnorm = 1/d *  JNnorm;
+
+%we permute the systems to have the correct ordering of the underlying Hilbert spaces
+JNPerm = PermuteSystems(JNnorm,[2,1],[d,d]);
+
+%here we use the symmetry reduction for the first level relaxation (equation 20, with M=2)
+cvx_begin sdp
+
+  variable Y(d*d,d*d)
+  variable rho(d,d)
+
+  variable objfunction
+ 
+  maximize(objfunction)
+
+  subject to
+ 
+  objfunction == d*d*trace(JNPerm * Y)
+
+  kron(rho,idnorm) - Y == hermitian_semidefinite (d*d)
+
+  Y == hermitian_semidefinite (d*d)
+
+  trace(rho) == 1
+
+  2^2 * PartialTrace(Y,1,[d,d]) == idnorm
+
+cvx_end
+
+%Second Level, i.e., n=2
+
+%Phi is the maximally entangled state (density operator)
+%here we want to send a qubit
+Phi = zeros(2^2); 
+
+for i=1 : 2
+ for j=1 : 2
+
+  ij = zeros(2);
+  ij(i,j) = 1;
+
+  Phi = Phi + kron(ij , ij);
+
+ end
+end
+
+Phi = 1/2 * Phi;
+
+%JPhi is the tensor product of the Choi state of the channel and the maximally entangled state
+JPhi = kron(JNnorm,Phi); 
+
+%we permute the systems to have the correct ordering of the underlying Hilbert spaces
+JPhiPerm = PermuteSystems(JPhi,[3,2,1,4],[d,d,2,2]); 
+
+cvx_begin sdp
+
+ variable rho2(2*d*d^2*2^2,2*d*d^2*2^2)
+
+ variable objfunction2
+ 
+ maximize(objfunction2)
+
+ subject to
+
+ objfunction2 == d*d*trace(JPhiPerm * PartialTrace(rho2,[4,6],[2,d,d,d,2,2])); 
+
+ rho2 == hermitian_semidefinite(2*d*d^2*2^2); 
+
+ trace(rho2) == 1;
+ 
+ PermuteSystems(rho2,[1,2,4,3,6,5],[2,d,d,d,2,2]) == rho2; 
+
+ PartialTrace(rho2,5,[2,d,d^2,2,2]) == PermuteSystems(kron(PartialTrace(rho2,[4,6],[2,d,d,d,2,2]),1/(d)* eye(d)),[1,2,3,5,4],[2,d,d,2,d]);
+
+ PartialTrace(rho2,2,[2,d,d,d,2,2]) == kron(1/(2)* eye(2),PartialTrace(rho2,[1,2],[2,d,d,d,2,2])); 
+
+ %PPT conditions
+ PartialTranspose(rho2,[1,2],[2,d,d,d,2,2]) == hermitian_semidefinite(2*d*d^2*2^2);
+ PartialTranspose(rho2,[3,5],[2,d,d,d,2,2]) == hermitian_semidefinite(2*d*d^2*2^2);
+ PartialTranspose(rho2,[4,6],[2,d,d,d,2,2]) == hermitian_semidefinite(2*d*d^2*2^2);
+
+cvx_end
+
+%Third Level, i.e., n=3
+
+cvx_begin sdp
+
+ variable rho3(2*d*d^3*2^3,2*d*d^3*2^3)
+
+ variable objfunction3
+ 
+ maximize(objfunction3)
+
+ subject to
+
+ objfunction3 == d*d*trace(JPhiPerm * PartialTrace(rho3,[4,5,7,8],[2,d,d,d,d,2,2,2])); 
+
+ rho3 == hermitian_semidefinite(2*d*d^3*2^3); 
+
+ trace(rho3) == 1;
+ 
+ PermuteSystems(rho3,[1,2, 3,5,4, 6,8,7],[2,d,d,d,d,2,2,2]) == rho3;
+ PermuteSystems(rho3,[1,2, 4,3,5, 7,6,8],[2,d,d,d,d,2,2,2]) == rho3; 
+ PermuteSystems(rho3,[1,2, 4,5,3, 7,8,6],[2,d,d,d,d,2,2,2]) == rho3; 
+ PermuteSystems(rho3,[1,2, 5,4,3, 8,7,6],[2,d,d,d,d,2,2,2]) == rho3; 
+ PermuteSystems(rho3,[1,2, 5,3,4, 8,6,7],[2,d,d,d,d,2,2,2]) == rho3;  
+
+ PartialTrace(rho3,8,[2,d,d,d,d,2,2,2]) == PermuteSystems(kron(PartialTrace(rho3,[5,8],[2,d, d,d,d, 2,2,2]),1/(d)* eye(d)),[1,2,3,4,7,5,6],[2,d, d,d, 2,2, d]);
+
+ PartialTrace(rho3,2,[2,d,d,d,d,2,2,2]) == kron(1/(2)* eye(2),PartialTrace(rho3,[1,2],[2,d,d,d,d,2,2,2]));
+
+ %PPT conditions
+ PartialTranspose(rho3,[1,2],[2,d,d,d,d,2,2,2]) == hermitian_semidefinite(2*d*d^3*2^3);
+ PartialTranspose(rho3,[3,6],[2,d,d,d,d,2,2,2]) == hermitian_semidefinite(2*d*d^3*2^3);
+ PartialTranspose(rho3,[4,7],[2,d,d,d,d,2,2,2]) == hermitian_semidefinite(2*d*d^3*2^3);
+ PartialTranspose(rho3,[5,8],[2,d,d,d,d,2,2,2]) == hermitian_semidefinite(2*d*d^3*2^3);
+
+cvx_end

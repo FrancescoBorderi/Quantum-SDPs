@@ -1,0 +1,97 @@
+cvx_solver mosek
+
+%initial value for the depolarizing probability
+p = 0;
+%dimension of the input/output of the depolarizing channel
+d = 2;
+%number of repetitions of the depolarizing channel
+N = 5;
+
+%the loop is required to solve the SDP for various depolarizing probabilities
+for j=1:30
+
+%additive accumulators for sums
+acc1 = 0;
+acc2 = 0;
+acc3 = 0;
+
+%matrix of the "x" coefficients
+X = zeros(N+1);
+
+for i=0:N
+ for k=0:N
+
+  for m= max(0,i+k-N):min(i,k) 
+   X(i+1,k+1) = X(i+1,k+1) + nchoosek(k,m) * nchoosek(N-k,i-m) * (-1)^(i-m) * (d-1)^(k-m) * (d+1)^(N-k+m-i); 
+  end
+
+  X(i+1,k+1) = 1/d^N * X(i+1,k+1);
+
+ end
+end
+
+
+cvx_begin sdp
+
+ variable objfunction
+ variable M(1,N+1)
+ variable F(1,N+1)
+ variable sumforplain
+
+ maximize(objfunction)
+
+ subject to
+
+ %computing the objective function
+ for i=0:N
+  acc1 = acc1 + nchoosek(N,i) * (1-p)^i * p^(N-i) * M(1,i+1);
+ end
+ 
+ %definition of the objective function
+ objfunction == acc1
+
+ %conditions on the "m" coefficients
+ M >= 0 
+ M <= 1 
+
+ %computing the appropriate products of the "x" and "m" coefficients, and then sum
+ for k=0:N
+
+  acc2 = 0;
+
+  for i=0:N
+   acc2 = acc2 + X(i+1,k+1) * M(1,i+1);
+  end
+  
+  %saving the result in the matrix F
+  F(1,k+1) == acc2
+
+ end
+
+ %conditions on F 
+ F >= -1/2
+ F <=  1/2 
+  
+ %computing the last sum
+ for i=0:N
+  acc3 = acc3  + M(1,i+1) * nchoosek(N,i) * 3^(N-i);
+ end
+
+ sumforplain == acc3
+ %last condition
+ sumforplain == 2^(2*N-2)
+
+cvx_end
+
+%vector collecting the optimal values
+OPT(j) = objfunction;
+
+%we update the depolarizing probability (notice the scale factor 3/4)
+p = p + 0.05*3/4;
+
+end
+
+
+
+
+

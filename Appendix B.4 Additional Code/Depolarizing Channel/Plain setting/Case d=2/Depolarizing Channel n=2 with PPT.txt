@@ -1,0 +1,91 @@
+cvx_solver sedumi
+
+%initial value for the depolarizing probability
+p = 0;
+%dimension of the input/output of the depolarizing channel
+d = 2;
+
+id = eye(d);
+
+%Phi is the maximally entangled state (density operator)
+%here we want to send a qubit
+Phi = zeros(2^2);
+
+for i=1 : 2
+ for j=1 : 2
+
+  ij = zeros(2);
+  ij(i,j) = 1;
+
+  Phi = Phi + kron(ij , ij);
+
+ end
+end
+
+Phi = 1/2 * Phi;
+
+%the loop is required to solve the SDP for various depolarizing probabilities
+for k= 1 : 11
+
+%Jdepnorm indicates the normalized Choi state of the depolarizing channel
+Jdepnorm = zeros(d^2);
+
+for i=1 : d
+ for j=1 : d
+
+  ij = zeros(d);
+  ij(i,j) = 1;
+
+  Jdepnorm = Jdepnorm + kron((1-p) * ij + p/d * trace(ij) * id,ij);
+
+ end
+end
+
+%normalization
+Jdepnorm = 1/d *  Jdepnorm;
+
+%JPhi is the tensor product of the Choi state of the channel and the maximally entangled state
+JPhi = kron(Jdepnorm,Phi);
+
+%we permute the systems to have the correct ordering of the underlying Hilbert spaces
+JPhiPerm = PermuteSystems(JPhi,[3,2,1,4],[d,d,2,2]);
+
+cvx_begin sdp
+
+ %the variable we are optimizing over
+ variable rho2(2*d*d^2*2^2,2*d*d^2*2^2)
+
+ variable objfunction
+ 
+ maximize(objfunction)
+
+ subject to
+ %definition of the objective function
+ objfunction == d*d*trace(JPhiPerm * PartialTrace(rho2,[4,6],[2,d,d,d,2,2]));
+
+ rho2 == hermitian_semidefinite(2*d*d^2*2^2); 
+ trace(rho2) == 1; 
+
+ %we permute the systems to have the correct ordering of the underlying Hilbert spaces
+ PermuteSystems(rho2,[1,2,4,3,6,5],[2,d,d,d,2,2]) == rho2;
+
+ %two linear constraints
+ PartialTrace(rho2,5,[2,d,d^2,2,2]) == PermuteSystems(kron(PartialTrace(rho2,[4,6],[2,d,d,d,2,2]),1/(d)* eye(d)),[1,2,3,5,4],[2,d,d,2,d]);
+ PartialTrace(rho2,2,[2,d,d,d,2,2]) == kron(1/(2)* eye(2),PartialTrace(rho2,[1,2],[2,d,d,d,2,2])); 
+
+ %PPT conditions
+ PartialTranspose(rho2,[1,2],[2,d,d,d,2,2]) == hermitian_semidefinite(2*d*d^2*2^2);
+ PartialTranspose(rho2,[3,5],[2,d,d,d,2,2]) == hermitian_semidefinite(2*d*d^2*2^2);
+ PartialTranspose(rho2,[4,6],[2,d,d,d,2,2]) == hermitian_semidefinite(2*d*d^2*2^2);
+
+ cvx_end
+
+%vector collecting the optimal values
+OPT2(k) = objfunction;
+
+%we update the depolarizing probability 
+p = p + 0.2;
+
+end
+
+

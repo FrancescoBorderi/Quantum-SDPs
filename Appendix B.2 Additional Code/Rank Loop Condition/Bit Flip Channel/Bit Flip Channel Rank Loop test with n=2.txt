@@ -1,0 +1,153 @@
+cvx_solver sdpt3
+
+%bit flip probability
+p = 0.1;
+
+%dimension of the input/output of the channel
+d = 2;
+id = eye(d); 
+
+%Phi is the maximally entangled state (density operator)
+%here we want to send a qubit
+Phi = zeros(2^2); 
+
+for i=1 : 2
+ for j=1 : 2
+
+  ij = zeros(2);
+  ij(i,j) = 1;
+
+  Phi = Phi + kron(ij , ij);
+
+ end
+end
+
+Phi = 1/2 * Phi;
+
+%Kraus operators for the BitFlip Channel
+
+E0 = zeros(2);
+E1 = zeros(2);
+
+E0(1,1) = sqrt(p);
+E0(2,2) = sqrt(p);
+
+E1(1,2) = sqrt(1-p);
+E1(2,1) = sqrt(1-p);
+
+%JNnorm indicates the normalized Choi state of the channel
+JNnorm = zeros(2^2);
+
+for i=1 : 2
+ for j=1 : 2
+
+  ij = zeros(2);
+  ij(i,j) = 1;
+
+  JNnorm = JNnorm + kron(E0 * ij * E0' + E1 * ij * E1',ij);
+
+ end
+end
+
+%normalization
+JNnorm = 1/d *  JNnorm; 
+
+%JPhi is the tensor product of the Choi state of the channel and the maximally entangled state
+JPhi = kron(JNnorm,Phi); 
+
+%we permute the systems to have the correct ordering of the underlying Hilbert spaces
+JPhiPerm = PermuteSystems(JPhi,[3,2,1,4],[2,2,2,2]); 
+
+cvx_begin sdp
+
+ cvx_precision best
+
+ variable rho2(2*2*2^2*2^2,2*2*2^2*2^2)
+
+ variable objfunction
+ 
+ maximize(objfunction)
+
+ subject to
+
+ objfunction == 2*2*trace(JPhiPerm * PartialTrace(rho2,[4,6],[2,2,2,2,2,2])); 
+
+ rho2 == hermitian_semidefinite(2*2*2^2*2^2); 
+
+ trace(rho2) == 1;
+ 
+ PermuteSystems(rho2,[1,2,4,3,6,5],[2,2,2,2,2,2]) == rho2; 
+
+ PartialTrace(rho2,5,[2,2,2^2,2,2]) == PermuteSystems(kron(PartialTrace(rho2,[4,6],[2,2,2,2,2,2]),1/(2)* eye(2)),[1,2,3,5,4],[2,2,2,2,2]);
+
+ PartialTrace(rho2,2,[2,2,2,2,2,2]) == kron(1/(2)* eye(2),PartialTrace(rho2,[1,2],[2,2,2,2,2,2])); 
+
+ PartialTranspose(rho2,[1,2],[2,2,2,2,2,2]) == hermitian_semidefinite(2*2*2^2*2^2);
+ PartialTranspose(rho2,[3,5],[2,2,2,2,2,2]) == hermitian_semidefinite(2*2*2^2*2^2);
+ PartialTranspose(rho2,[4,6],[2,2,2,2,2,2]) == hermitian_semidefinite(2*2*2^2*2^2);
+
+ cvx_end
+
+ %Now we check the rank loop condition
+
+ rank(rho2)
+ max( rank( PartialTrace(rho2,[4,6],[2,d,d,d,2,2]) ) , rank( PartialTrace(rho2,[1,2,3,5],[2,d,d,d,2,2]) ) )
+
+ %As we notice, we need to round the solution to replace extremely small numbers e.g., 10^(-10) with zeros
+ %In fact, due to numerical precision, it is very rare to get "clean zeros".
+
+ %Now we check again the rank loop condition for the rounded solution
+
+ rank(round(rho2,6))
+ max( rank(round(PartialTrace(rho2,[4,6],[2,d,d,d,2,2]),6)  ) , rank( round(PartialTrace(rho2,[1,2,3,5],[2,d,d,d,2,2]),6) ) )
+
+ %If it "does not work", then we proceed with the Rank Minimization procedure with the log-det method
+
+ %we choose the following parameters for the method
+
+ rho2it = eye(2*d*d^2*2^2);     % rho2it initially is the identity matrix;
+ delta = 0.1;                   % regularization factor
+ NIterations = 5;               % number of iterations of the procedure
+
+ for i = 1: NIterations;
+
+ cvx_begin sdp
+
+ cvx_precision low
+
+ variable rho2New(2*d*d^2*2^2,2*d*d^2*2^2)
+ variable objfunctionRank
+
+ minimize(objfunctionRank)
+ 
+ %the smooth surrogate for the rank, the next rho2it is the one which minimizes this function with the following constraints
+ objfunctionRank == trace( inv(rho2it + delta*eye(2*d*d^2*2^2)) * rho2New); 
+                                                                          
+ %constraint using the objective function of the original problem
+ d*d*trace(JPhiPerm * PartialTrace(rho2New,[4,6],[2,d,d,d,2,2])) == objfunction; 
+
+ % constraints for the second level
+ rho2New == hermitian_semidefinite(2*d*d^2*2^2); 
+ trace(rho2New) == 1;
+ PermuteSystems(rho2New,[1,2,4,3,6,5],[2,d,d,d,2,2]) == rho2New;
+ PartialTrace(rho2New,5,[2,d,d^2,2,2]) == PermuteSystems(kron(PartialTrace(rho2New,[4,6],[2,d,d,d,2,2]),1/(d)* eye(d)),[1,2,3,5,4],[2,d,d,2,d]);
+ PartialTrace(rho2New,2,[2,d,d,d,2,2]) == kron(1/(2)* eye(2),PartialTrace(rho2New,[1,2],[2,d,d,d,2,2])); 
+ PartialTranspose(rho2New,[1,2],[2,d,d,d,2,2]) == hermitian_semidefinite(2*d*d^2*2^2);
+ PartialTranspose(rho2New,[3,5],[2,d,d,d,2,2]) == hermitian_semidefinite(2*d*d^2*2^2);
+ PartialTranspose(rho2New,[4,6],[2,d,d,d,2,2]) == hermitian_semidefinite(2*d*d^2*2^2);
+
+cvx_end
+
+ vectorRanks(i) =  log(det(rho2it + delta*eye(2*d*d^2*2^2)));
+
+ %I update the value of rho2it for the next iteration
+ rho2it = rho2New;                                             
+
+end 
+
+%prints the rank
+rank(rho2it)
+%prints the rounded rank (for the same reason as above)
+rank(round(rho2it,6))
+%Finally, we check the rank loop condition
+max(rank(round(PartialTrace(rho2it,[4,6],[2,d,d,d,2,2]),6)  ) , rank( round(PartialTrace(rho2it,[1,2,3,5],[2,d,d,d,2,2]),6) ) )

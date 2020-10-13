@@ -1,0 +1,88 @@
+cvx_solver sedumi
+
+%initial value for the depolarizing probability
+p = 0;
+%dimension of the input/output of the depolarizing channel
+d = 2;
+
+id = eye(d);
+
+%Phi is the maximally entangled state (density operator)
+%here we want to send a qubit
+Phi = zeros(2^2);
+
+for i=1 : 2
+ for j=1 : 2
+
+  ij = zeros(2);
+  ij(i,j) = 1;
+
+  Phi = Phi + kron(ij , ij);
+
+ end
+end
+
+Phi = 1/2 * Phi;
+
+%the loop is required to solve the SDP for various depolarizing probabilities
+for k=1 : 11
+
+%Jdepnorm indicates the normalized Choi state of the depolarizing channel
+Jdepnorm = zeros(d^2);
+
+for i=1 : d
+ for j=1 : d
+
+  ij = zeros(d);
+  ij(i,j) = 1;
+
+  Jdepnorm = Jdepnorm + kron((1-p) * ij + p/d * trace(ij) * id,ij);
+
+ end
+end
+
+%normalization
+Jdepnorm = 1/d *  Jdepnorm;
+
+%JPhi is the tensor product of the Choi state of the channel and the maximally entangled state
+JPhi = kron(Jdepnorm,Phi);
+
+%we permute the systems to have the correct ordering of the underlying Hilbert spaces
+JPhiPerm = PermuteSystems(JPhi,[3,2,1,4],[d,d,2,2]);
+
+cvx_begin sdp
+
+ cvx_precision best
+
+ %the variable we are optimizing over
+ variable rho(2*d*d*2,2*d*d*2)
+
+ variable objfunction
+ 
+ maximize(objfunction)
+
+ subject to
+
+ %definition of the objective function
+ objfunction == d*d*trace(JPhiPerm*rho);
+
+ rho == hermitian_semidefinite(2*d*d*2);
+ trace(rho) == 1;
+
+ %LOCC(1) conditions
+ PartialTrace(rho,4,[2,d,d,2]) == kron(PartialTrace(rho,3,[2,d,d*2]),1/(d)* eye(d));
+ PartialTrace(rho,2,[2,d*d*2]) == 1/2* eye(2);
+
+ %PPT condition
+ PartialTranspose(rho,[3,4],[2,d,d,2]) == hermitian_semidefinite(2*d*d*2);
+
+ cvx_end
+
+%vector collecting the optimal values
+OPT(k) = objfunction;
+
+%we update the depolarizing probability 
+p = p + 0.2;
+
+end
+
